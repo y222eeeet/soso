@@ -8,14 +8,32 @@
 import SwiftUI
 
 struct ContentView: View {
+    @StateObject private var happinessStore = HappinessStore()
+    @StateObject private var settingsStore = UserSettingsStore()
+    
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
+        TabView {
+            HomeView(store: happinessStore, settings: settingsStore)
+                .tabItem {
+                    Label("홈", systemImage: "leaf.fill")
+                }
+            
+            SettingsView(settings: settingsStore)
+                .tabItem {
+                    Label("설정", systemImage: "gearshape.fill")
+                }
         }
-        .padding()
+        .tint(Color(red: 0.2, green: 0.6, blue: 0.35))
+        .onAppear {
+            NotificationScheduler.requestAuthorization { granted in
+                if granted && settingsStore.isNotificationEnabled {
+                    NotificationScheduler.scheduleNotification(
+                        hour: settingsStore.notificationHour,
+                        minute: settingsStore.notificationMinute
+                    )
+                }
+            }
+        }
     }
 }
 
