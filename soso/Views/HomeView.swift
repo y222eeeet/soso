@@ -24,6 +24,12 @@ struct HomeView: View {
     // 여러 유리병 스와이프를 위한 상태
     @State private var currentBottleIndex: Int = 0
     @State private var didSetInitialBottleIndex: Bool = false
+    @State private var lastBottlePreviousCount: Int = 0
+    
+    // 행복 기록 시 상단에서 병으로 떨어지는 클로버 애니메이션 상태
+    @State private var showHeaderClover: Bool = false
+    @State private var headerCloverOffsetY: CGFloat = 0
+    @State private var headerCloverOpacity: Double = 0
     
     private var cloverCount: Int {
         store.records.count
@@ -31,7 +37,9 @@ struct HomeView: View {
     
     /// 전체 유리병 개수 (1병당 최대 100개 기록 보관)
     private var bottleCount: Int {
-        max(1, Int(ceil(Double(cloverCount) / Double(BottleCloverLayout.maxClovers))))
+        // 항상 "현재 진행 중인 병"을 하나 더 보여주기 위해
+        // 꽉 찬 병 개수 + 1 형태로 계산 (최소 1개)
+        max(1, cloverCount / BottleCloverLayout.maxClovers + 1)
     }
     
     /// 특정 유리병 인덱스에 해당하는 클로버 개수
@@ -88,8 +96,10 @@ struct HomeView: View {
                         // 여러 유리병 스와이프 (병 인덱스 기준)
                         TabView(selection: $currentBottleIndex) {
                             ForEach(0..<bottleCount, id: \.self) { index in
+                                let countForThisBottle = cloverCount(for: index)
                                 BottleView(
-                                    cloverCount: cloverCount(for: index),
+                                    cloverCount: countForThisBottle,
+                                    previousCloverCount: showCloverAnimation && index == bottleCount - 1 ? lastBottlePreviousCount : nil,
                                     showNewCloverAnimation: showCloverAnimation && index == bottleCount - 1,
                                     onAnimationComplete: {
                                         withAnimation {
@@ -227,6 +237,16 @@ struct HomeView: View {
                 .padding(.bottom, 28)
             }
             
+            // 상단 텍스트 바로 아래에서 병 방향으로 떨어지는 클로버 애니메이션
+            if showHeaderClover {
+                Image("clover")
+                    .resizable()
+                    .frame(width: 32, height: 32)
+                    .opacity(headerCloverOpacity)
+                    // 화면 중앙 기준 Y 오프셋(제목 아래에서 병 상단까지 떨어지는 느낌)
+                    .offset(y: headerCloverOffsetY)
+            }
+            
             // 랜덤 행복 모달 오버레이 (시스템 바텀시트 대신 직접 오버레이)
             if let record = randomRecordForToday {
                 RandomMemoryModal(
@@ -252,12 +272,15 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showWriteScreen) {
             WriteScreen { content in
+                // 기록 직전, "현재 진행 중인 마지막 유리병"에 담긴 클로버 개수를 저장
+                let lastIndex = bottleCount - 1
+                lastBottlePreviousCount = cloverCount(for: lastIndex)
+                
                 store.addRecord(content)
                 showWriteScreen = false
-                // 첫 번째 유리병(100개)에 추가될 때만 떨어지는 애니메이션
-                if store.records.count <= BottleCloverLayout.maxClovers {
-                    showCloverAnimation = true
-                }
+                // 실제로 기록이 저장된 직후, 마지막 유리병에서 클로버가 추가되는 모션을 항상 보여줌
+                showCloverAnimation = true
+                startHeaderCloverDrop()
             }
         }
     }
@@ -345,6 +368,29 @@ private extension HomeView {
                 }
             }
             pendingRandomRecord = nil
+        }
+    }
+    
+    /// 상단 "(닉네임)님의 행복" 텍스트 아래에서 병 방향으로 떨어지는 클로버 애니메이션
+    func startHeaderCloverDrop() {
+        // 시작 위치: 화면 중앙 기준으로 위쪽(제목 아래 근처)
+        headerCloverOffsetY = -220
+        headerCloverOpacity = 1
+        showHeaderClover = true
+        
+        // 병 안으로 들어가듯이, 병 중간 아래 정도까지 떨어지는 애니메이션
+        withAnimation(.easeIn(duration: 0.7)) {
+            headerCloverOffsetY = 100
+        }
+        
+        // 바닥에 닿은 뒤에 서서히 사라짐
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
+            withAnimation(.easeOut(duration: 0.35)) {
+                headerCloverOpacity = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                showHeaderClover = false
+            }
         }
     }
 }

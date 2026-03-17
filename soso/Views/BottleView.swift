@@ -7,26 +7,45 @@
 
 import SwiftUI
 
-// MARK: - 일러스트 공통 스타일 (유리병·클로버 선 두께 등)
+// 최소 스타일/Shape 정의 (파일 하단의 예전 일러스트 코드에서만 참조되며,
+// 현재 실제 UI에는 사용되지 않지만 컴파일 오류를 막기 위해 남겨둠)
 struct IllustrationStyle {
-    /// 선 두께 (병·클로버 모두에서 사용)
-    static let lineWidth: CGFloat = 1.8
-    
-    /// 유리병 색상 계열
+    static let lineWidth: CGFloat = 1.5
     static let glassFill = Color(red: 0.92, green: 0.96, blue: 0.98).opacity(0.4)
-    static let glassHighlight = Color.white.opacity(0.6)
     static let glassOutline = Color(red: 0.75, green: 0.82, blue: 0.88)
-    
-    /// 금속 클래스 색상
     static let metalColor = Color(red: 0.7, green: 0.72, blue: 0.75)
+}
+
+struct JarBodyShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.addRoundedRect(in: rect, cornerSize: CGSize(width: rect.width * 0.2, height: rect.width * 0.2))
+        return path
+    }
+}
+
+struct JarLidShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let lidHeight = rect.height * 0.12
+        path.addRect(CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: lidHeight))
+        return path
+    }
+}
+
+struct MetalClaspShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        Path()
+    }
 }
 
 struct BottleView: View {
     let cloverCount: Int
+    /// 기록 직전 이 병에 담겨 있던 클로버 개수 (애니메이션용)
+    var previousCloverCount: Int? = nil
     var showNewCloverAnimation: Bool = false
     var onAnimationComplete: (() -> Void)?
     
-    @State private var fallingCloverPosition: CGPoint = .zero
     @State private var hasTriggeredCompletion = false
     @State private var showOverlayImage = false
     @State private var overlayOpacity: Double = 0
@@ -50,15 +69,9 @@ struct BottleView: View {
                     .opacity(overlayOpacity)
             }
             
-            // 새로 추가되는 클로버: 병 입구에서 떨어졌다가 채움 단계가 바뀌는 애니메이션
-            if showNewCloverAnimation, cappedCloverCount > 0 {
-                CloverView(size: cloverSize)
-                    .position(fallingCloverPosition)
-                    .frame(width: bottleWidth, height: bottleHeight)
-            }
         }
         .frame(width: bottleWidth, height: bottleHeight)
-        .onChange(of: showNewCloverAnimation) { _, isShowing in
+        .onChange(of: showNewCloverAnimation) { isShowing in
             if isShowing {
                 startFallingAnimation()
             }
@@ -75,7 +88,12 @@ struct BottleView: View {
     }
     
     private var baseImageName: String {
-        bottleImageName(for: baseCloverCount)
+        // 애니메이션 중이고 직전 개수가 주어졌다면, 항상 "추가 전" 상태 이미지를 기준으로 시작
+        if showNewCloverAnimation, let prev = previousCloverCount {
+            let cappedPrev = max(0, min(prev, BottleCloverLayout.maxClovers))
+            return bottleImageName(for: cappedPrev)
+        }
+        return bottleImageName(for: cappedCloverCount)
     }
     
     private var targetImageName: String {
@@ -87,41 +105,22 @@ struct BottleView: View {
         baseImageName != targetImageName
     }
     
-    /// 애니메이션 중에는 직전 상태를, 아니면 현재 개수를 사용
-    private var baseCloverCount: Int {
-        let capped = max(0, min(cappedCloverCount, BottleCloverLayout.maxClovers))
-        if showNewCloverAnimation {
-            return max(capped - 1, 0)
-        }
-        return capped
-    }
-    
     private func startFallingAnimation() {
-        let startPosition = CGPoint(x: bottleWidth / 2, y: -30)
-        let targetPosition = CGPoint(x: bottleWidth / 2, y: bottleHeight * 0.75)
-        
-        fallingCloverPosition = startPosition
-        
         // 병 안 이미지 크로스페이드 설정 (필요한 경우에만)
         if needsImageTransition {
             showOverlayImage = true
             overlayOpacity = 0
-        }
-        
-        withAnimation(.easeIn(duration: 1.0)) {
-            fallingCloverPosition = targetPosition
-        }
-        
-        // 클로버가 어느 정도 떨어진 뒤에 이미지가 서서히 바뀌도록 딜레이를 둠
-        if needsImageTransition {
-            withAnimation(.easeInOut(duration: 0.35).delay(0.55)) {
+            
+            // 헤더 클로버가 병 바닥에 도달한 직후(약 0.7초 시점)부터
+            // 새로운 병 이미지를 서서히 보여줌
+            withAnimation(.easeInOut(duration: 0.35).delay(0.7)) {
                 overlayOpacity = 1
             }
         }
         
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
-            if !hasTriggeredCompletion {
-                hasTriggeredCompletion = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.05) {
+                if !hasTriggeredCompletion {
+                    hasTriggeredCompletion = true
                 showOverlayImage = false
                 overlayOpacity = 0
                 onAnimationComplete?()
@@ -266,70 +265,7 @@ struct FillBlobShape: Shape {
     }
 }
 
-/// 병 몸통: 원통형 유리병, 어깨가 둥글게 목으로 이어짐 (스윙탑 병 형태)
-struct JarBodyShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let w = rect.width
-        let h = rect.height
-        
-        // 왼쪽 경로 (아래→위): 평평한 바닥 → 둥근 몸통 → 목
-        path.move(to: CGPoint(x: w * 0.28, y: h))
-        path.addLine(to: CGPoint(x: w * 0.22, y: h * 0.94))
-        path.addQuadCurve(to: CGPoint(x: w * 0.24, y: h * 0.7), control: CGPoint(x: w * 0.18, y: h * 0.82))
-        path.addQuadCurve(to: CGPoint(x: w * 0.30, y: h * 0.2), control: CGPoint(x: w * 0.22, y: h * 0.45))
-        path.addQuadCurve(to: CGPoint(x: w * 0.36, y: h * 0.12), control: CGPoint(x: w * 0.28, y: h * 0.16))
-        
-        // 목 위쪽
-        path.addLine(to: CGPoint(x: w * 0.64, y: h * 0.12))
-        path.addQuadCurve(to: CGPoint(x: w * 0.70, y: h * 0.2), control: CGPoint(x: w * 0.72, y: h * 0.16))
-        path.addQuadCurve(to: CGPoint(x: w * 0.76, y: h * 0.7), control: CGPoint(x: w * 0.78, y: h * 0.45))
-        path.addQuadCurve(to: CGPoint(x: w * 0.78, y: h * 0.94), control: CGPoint(x: w * 0.82, y: h * 0.82))
-        path.addLine(to: CGPoint(x: w * 0.72, y: h))
-        path.closeSubpath()
-        
-        return path
-    }
-}
-
-/// 뚜껑: 약간 돔 형태의 원형
-struct JarLidShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let w = rect.width
-        let h = rect.height
-        
-        let lidY = h * 0.06
-        let lidRadius = w * 0.18
-        let centerX = w / 2
-        
-        path.addEllipse(in: CGRect(x: centerX - lidRadius, y: lidY - lidRadius * 0.3, width: lidRadius * 2, height: lidRadius * 0.8))
-        return path
-    }
-}
-
-/// 금속 클래스 (스윙탑) - 단순화된 2D 라인
-struct MetalClaspShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let w = rect.width
-        let h = rect.height
-        
-        let neckY = h * 0.12
-        let leftX = w * 0.36
-        let rightX = w * 0.64
-        
-        // 왼쪽 고리
-        path.addEllipse(in: CGRect(x: leftX - 3, y: neckY - 1, width: 6, height: 5))
-        // 오른쪽 고리
-        path.addEllipse(in: CGRect(x: rightX - 3, y: neckY - 1, width: 6, height: 5))
-        // 바일 (열린 상태로 왼쪽으로 올라감)
-        path.move(to: CGPoint(x: leftX, y: neckY + 2))
-        path.addQuadCurve(to: CGPoint(x: w * 0.12, y: neckY - 8), control: CGPoint(x: w * 0.2, y: neckY + 4))
-        
-        return path
-    }
-}
+// (이전 커스텀 Shape 기반 병/채움 코드는 더 이상 사용하지 않아 제거했습니다.)
 
 // MARK: - 상태별 병 이미지 이름 매핑
 private func bottleImageName(for count: Int) -> String {

@@ -37,8 +37,8 @@ final class HappinessStore: ObservableObject {
         if records.isEmpty {
             let calendar = Calendar.current
             let now = Date()
-            // 240개의 더미 기록 생성 (모두 과거 날짜로 분산)
-            for i in 1...240 {
+            // 200개의 더미 기록 생성 (모두 과거 날짜로 분산)
+            for i in 1...200 {
                 guard let date = calendar.date(byAdding: .day, value: -i, to: now) else { continue }
                 let dummyContent = "오늘도 작은 행복을 발견하며 마음을 천천히 들여다본 하루였다. 커피 한 잔, 햇살, 스쳐 간 미소까지 모두 소중하게 느껴졌다. 버스는 한번에 탈 수 있었고 수업이 휴강이라 좋았다."
                 let record = HappinessRecord(content: dummyContent, createdAt: date)
